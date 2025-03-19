@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Whack-a-Devil Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#5D5CDE',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Prevent text selection during gameplay */
+        html {
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        .game-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            gap: 10px;
+        }
+        
+        .hole {
+            position: relative;
+            overflow: hidden;
+            border-radius: 50%;
+            background-color: #553c2a;
+            box-shadow: inset 0 10px 15px -10px rgba(0, 0, 0, 0.7);
+            /* Ensure touch targets are at least 44px × 44px on mobile */
+            min-height: 70px;
+        }
+        
+        .devil {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            transition: bottom 0.1s;
+            width: 60%;
+            height: auto;
+            /* Extend hit area for better mobile tapping */
+            padding: 10px;
+            margin: -10px;
+            cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 100 100'><path d='M10 60 C10 40 20 40 30 45 L40 20 C45 10 55 10 60 20 L75 60 C85 70 90 80 80 90 L30 90 C15 90 10 80 10 60 Z' fill='%235D5CDE' stroke='%23000' stroke-width='3'/><path d='M30 90 L20 100 L80 100 L70 90' fill='%235D5CDE' stroke='%23000' stroke-width='3'/></svg>") 30 100, auto;
+        }
+        
+        .devil.visible {
+            bottom: 0;
+        }
+        
+        .devil.hidden {
+            bottom: -100%;
+        }
+        
+        /* Visual feedback when hitting a devil */
+        .hole.hit {
+            background-color: #ff8c66;
+        }
+
+        .dark .hole {
+            background-color: #302218;
+        }
+        
+        .dark .hole.hit {
+            background-color: #8a3c1e;
+        }
+
+        /* Improve button tap targets for mobile */
+        #startBtn, #muteBtn {
+            min-height: 44px;
+            min-width: 80px;
+        }
+
+        @media (max-width: 640px) {
+            .game-grid {
+                gap: 8px;
+            }
+            
+            h1 {
+                font-size: 1.75rem; /* Smaller heading on mobile */
+            }
+            
+            /* Optimize layout for mobile */
+            .game-container {
+                margin-top: 0.5rem;
+                margin-bottom: 0.5rem;
+            }
+        }
+
+        /* Optimize for landscape mode on small devices */
+        @media (max-height: 500px) and (orientation: landscape) {
+            body {
+                padding-top: 0.5rem;
+                padding-bottom: 0.5rem;
+            }
+            
+            header {
+                margin-bottom: 0.5rem;
+            }
+            
+            h1 {
+                font-size: 1.5rem;
+                margin-bottom: 0 !important;
+            }
+            
+            .game-container {
+                max-height: 70vh;
+            }
+        }
+
+        /* Devil SVG styles rendered inline */
+        .devil-svg .body {
+            fill: #ff0000;
+        }
+        .devil-svg .face {
+            fill: #000;
+        }
+        .devil-svg .horns {
+            fill: #820000;
+        }
+    </style>
+</head>
+<body class="bg-white dark:bg-gray-900 min-h-screen flex flex-col items-center py-6 px-4 transition-colors duration-300">
+    <header class="text-center mb-6">
+        <h1 class="text-4xl font-bold text-gray-800 dark:text-white mb-2">Whack-a-Devil</h1>
+        <p class="text-xl text-gray-600 dark:text-gray-300">Score: <span id="score" class="font-bold text-primary">0</span></p>
+    </header>
+
+    <div class="game-container w-full max-w-md aspect-square mb-6">
+        <div class="game-grid h-full">
+            <!-- 9 holes will be created here by JavaScript -->
+        </div>
+    </div>
+
+    <div class="controls flex gap-4">
+        <button id="startBtn" class="bg-primary hover:bg-primary/80 text-white font-bold py-2 px-6 rounded-lg text-lg transition-colors">
+            Start Game
+        </button>
+        <button id="muteBtn" class="bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white font-bold py-2 px-6 rounded-lg text-lg transition-colors">
+            🔊
+        </button>
+    </div>
+
+    <!-- Audio elements -->
+    <audio id="hitSound" src="data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA/+NAwAAAAAAAAAAAAFhpbmcAAAAPAAAAAwAAA2YAVlZWVlZWVlZWVlZWVlZWVlZWVlbp6enp6enp6enp6enp6enp6enp6en///////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAA2YxhVfWAAAAAAD/40DEACkTJdptPGAEPjaDPJg5MDAy5JAG24HA4bjQc+D5xw/B9+H////////5QHgOA8H8f/6jPB3g4Hw//+h9IcQhgGC73nB3/4YBAEAwD//wIZx/4HhAA+JRwYQl4FAcU2GgUS0INYygqHg5OHkKx0U2GQmmhwm4NlD5SyhQw2H0W6GxpTJL8OMCo6TExGGSb00GLHh8OPB1VNHlMw03FTFQokm0ODkdI0ZRgsRERJm8sIhgqEVfBLiYHEEgYCyQ8NtM67NkpbwUApDjSe3LaxWqbXNjR2VeaV/P1+oXn3V7/q9b1K5V1vOre+Sv9d3lb///nf/+XueVxjhEIRXaVs9Rz9Tofqtav+tXz+59Sv1v+fzn8/L//wD/40LEMSEbtfnnsMrrkUAYCgkQDFUuHqFh0sBksmAtRjOUwuKpiIKEwcFHC40Bh4eFh0WBF8Hq8wSIAwkFMGjTkegGkJhcmY9vEAUwMPO0EjAYIxkIJdABAQ5EZ8FgI5JxJHgK9TDZMF8AhIGY0mYxEZzGYXoDFjdMMAjGgcwIOMADhAcTKxMBCTJAYwsPMwBBwQHD44MHCFgASCTIYg12H8hIUHg8GWGDEBwxIMq+aZM2uTdqq5s3o3LrZcRD8tz/UdIkqldVv/wTlf3b78o2f/ufOPX9/5znOc+fOfyyuSX333v///+8+c5znOc5zl7t273v5553nv97//5znPec/+fec5zqCoKAgOCwVDFMjQERoPy4mhZmgpmYAggSGIcGK6GlYGE2GAoAGCwmmAIVmC4IGE4Bv/40LEIh1zheadkzABBiIIBQAxHBkO3WxOPJaXJeFIkgxJNHWZlrpukmYXM+KrjXzYLkKHhCjECLQ0BHEgCRA3ASwLGWQABNCEaIUi0mGcMpCSvXxWKiocQB02zxMPKMq94uaD/FQ6haMIhQVDqAqRFiVzpqqLtv/t4sVSCRSmGE8oTp6bq+11y7Z8G5V3D8Ku2BtLigVAtYsHHAVXrN7Z/aq+63jZ30GqlGgp1ksZU/5rMk6h1GGxlXdLlPp3pfF/1yrdaP+7Uq//43/3///71fktVf9hU2v/7+tb0EJIoxjYc2KxoGWr1jUt2JkTpLaOhCCElcm1OqPNSzZZjTXMllO7Ss1KXbXNGpM2+hrdR3fOPOdX0ZnctT4O9O+tdb+VfK+8MYYbEQz//QL/40LEOH0D7eqs0l68Xov//XroNCGNTw2HQ+NCkiEgccB40CxUGTQ0KiAeLgcKx8YJSiQHWYZGjEfnYiDcHGAYCA8ChQXDQcAJsWB7mDg8hYxMU3xjQKWFGwaTYwnYcx2UXOgMXDAIPhw6GDwsEw8dDqQCgcJCVDkYCDdaHQBUBxEDhIiE0RrF0cN2qzDmSxoUoRhWC0lTDHOHg+k5RQnCw0bUCmCQXQQgwdmVGm1ZucqVHLZczHm2rkrPTGbty5pKu/5Rkz5RmdzRBntrZnXmT95Xcr5jH8nf5//v+//9S/UZ3//PrfUZ3pn+/H+4rr/OtX/LvTvx3pLFo9vu/Jf/3//9JQXf/Wj9Nf4AQxQ4aHAQfRCv/jQsQ9fsvt6qzT3rw8YDxmS2FYkFqkIKTVEIYqYdB0t1NXLdVrmb1KX/k9n8qtPT0Kc3tXTp2GQTY6y6fPxj7pKnWpmVZIsjQKPY5GgQPiEQMBMSioWilIgcHQ9MCMBGA4OCqPxgaHh4UEYeAaRLs9ViyUiQgPD0Qmg4mEoPhJEzD1KWtjdE4ylknA0HpEFi4NDB7ZHm+qZZk7I62YVST5m1M+ZO7NqZQmfMmaZGnUvbKvnMmfu7M5l2QdtUjbVr6cPmT///+//tP5bfUWqf0lDqPqf1l5/qJSr//pJO0K7dVlZP9aX/jV+pSvXS/2p7V7X9X//+lYRjTIYAwgJgwuBKGGUMggJRgOCZLHbMMQkNf/jQsREfgPt6qzT3rxIlljWvK1Nd5iNF3n/KczWfKflWrL3/R+zcptVSjTgkIwxrxOKf1uR1HA0xQdcaGSDVy5NGVHHFQxRpCISABEAyGQEDgCFxwWbAwUy0VGBUMF4Qhwm5mUXDUJfJo0KUhF8u0g25lEh4cGx0kGHjw4KEwgVJGhCVzJrdkTGjZuY2rZuysxszulMmTqyNuzt3amTMzr1JZ/cZQmd2Rt+/r//p/6/4zO/9P9f+n5/+P///9aNf5//JdmrXUvdKWb7+pSrmf8hf/7X//3/4ZpTrZtP9Wpfl3X/Wd5/e7V0KKUDmJAyYAgwuAAoIYPDQlDeXJqaDQvr3lP/40LEUH6EDeqk0968PaWfnX+WfO8vymff//rfWbWp+//r09OfUKiV43A+JRBmCy1j4jlvTQ0ZP11D0nDkJVrv9bXsZCgeLCnbLZ04wEiUCDQBAgIGCJGCIMMhxIHnYaMixZOlw/OPMbp2QOdXGXUpZh5Y4r2yqRsazjpQZByBIXg+OWWDEmrndqZVqY7r5nqW/8xjvP+///M9/f7qN5v+vVGe/9Jnd/Trrx30m//6k+kpVf9aNnlT/Sr+/Kt/ztTt+pJV//aqZfl+/68z/nU1/9HVCx5DGEoSkkLRoYGhEXhsjHw6NTQVB8NGhYTGw2HTgoJzxPz3lXpfOr3zKvUv0M1+n+v//+eS7Uqf//jQsRCfxQt7qTT3rwt+pT/+Z71HtSz6/zfq/J+ixGjsdHJGODM9PDI9PDcuPDc1jg2pnBqVDsZVf/6+EIBC5YPCkRhQBiQlFwrCQXFIyPBGiDgFDAGCAwKRIMl6VioyGhiAMrZnc/0XrMpBdMrFaW/VFQ1TDxcCKhoZ1KLllGTEkU5R5iXLRszd/Vdub1fO11KqZu3LL3D9f39V//fGXVuPun//8v/R11F+knL/e6b5QpVy9bLp6lKv/pbNv6i1f/+kkqVbpJJMkq///9dV/ualN8/0p0qT/U/03oCHBowLRoMDhUMBpMdGpMfCQ5DiL9iQmP+X6T/9T//0/UdP/6/+v5//6/nP/40LEPn6j9eqk0968KllNDYimCB0dDY1NS0QGxiVHZiVFTEoRpuUP/2/WxsIAZEFxAeYPCxgcCQBEwPChMZLBiAGDAcwECjwJEjJtFp5NGCxU0HCbKxdzlXu6IiUZBlEwwQWLAIcNCDxIEGYqrMdyZHDMnZR7cud1smYvnWpcnUrZOTd0ZnZ3e4b57lX7s//zzrznKtedK97l/yyVf//d8rmLt8qrK+Z3///9Q5znOlXrXf/3LvOf///5znOc5znPf/fr/v3fXlvr/znOc5znOc5zcgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/jQsRGfsQV6qTT3rwAAA0gAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="></audio>
+    <audio id="missSound" src="data:audio/mp3;base64,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"></audio>
+    <audio id="startSound" src="data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA/+NAwAAAAAAAAAAAAFhpbmcAAAAPAAAADwAAJ8MAFBQUFCQkJCQ0NDQ0RERERFRUVFR6enp6ioqKipqamprW1tba4uLi4vLy8vL6+vr6CgoKChYWFhYmJiYmNjY2NkZGRkZWVlZWZmZmZnZ2dnZ6enp6nJycnKysrKy8vLy8zMzMzNzc3Nzs7Ozs/Pz8/P///wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAExhdmM1OC4xMwAAAAAAAAAAAAAAACQAAAAAAAAAAAnjW1BOAwAAAP/jYMQAEvknuJGTEOBSKCQCxAA0QL1S4AUB0AJgACSilGHZ2LABEFBAXJDz0xPMa8ABgP//+kTXcKTJwNdyXf//2gABTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/jgMQAIoYlwiJHFHBkZCNAZ+VAVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//swxIMAIhAA/8AQAA8EYCgcAQBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"></audio>
+
+    <script>
+        const gameGrid = document.querySelector('.game-grid');
+        const scoreDisplay = document.getElementById('score');
+        const startBtn = document.getElementById('startBtn');
+        const muteBtn = document.getElementById('muteBtn');
+        
+        const hitSound = document.getElementById('hitSound');
+        const missSound = document.getElementById('missSound');
+        const startSound = document.getElementById('startSound');
+        
+        let score = 0;
+        let gameActive = false;
+        let currentDevil = null;
+        let lastHole = null;
+        let muted = false;
+        let gameSpeed = 1000; // Starting speed (ms)
+        let minSpeed = 600; // Fastest speed the game will reach
+        let speedDecrement = 10; // How much to decrease the speed after each hit
+        
+        // Create holes and devils
+        function createGameGrid() {
+            for (let i = 0; i < 9; i++) {
+                const hole = document.createElement('div');
+                hole.classList.add('hole');
+                hole.dataset.index = i;
+                
+                // Create devil character
+                const devil = document.createElement('div');
+                devil.classList.add('devil', 'hidden');
+                
+                // Create SVG for devil
+                devil.innerHTML = `
+                    <svg class="devil-svg" viewBox="0 0 100 120" width="100%" height="100%">
+                        <path class="body" d="M50,10 C70,10 85,30 85,60 C85,90 70,110 50,110 C30,110 15,90 15,60 C15,30 30,10 50,10 Z" />
+                        <path class="horns" d="M30,15 L25,0 L35,10 Z M70,15 L75,0 L65,10 Z" />
+                        <circle class="face" cx="35" cy="40" r="5" />
+                        <circle class="face" cx="65" cy="40" r="5" />
+                        <path class="face" d="M40,60 C45,70 55,70 60,60" stroke="black" stroke-width="2" fill="none" />
+                    </svg>
+                `;
+                
+                hole.appendChild(devil);
+                gameGrid.appendChild(hole);
+                
+                // Add devil click/tap handler with improved touch handling
+                devil.addEventListener('click', whackDevil);
+                devil.addEventListener('touchstart', (e) => {
+                    e.preventDefault(); // Prevent double-firing on touch devices
+                    whackDevil(e);
+                }, { passive: false });
+                
+                // Add additional touch events for better mobile response
+                devil.addEventListener('touchend', (e) => {
+                    e.preventDefault(); // Prevent any default behavior
+                }, { passive: false });
+            }
+            
+            // Add miss handler to game container (for when they miss the devil)
+            gameGrid.addEventListener('click', missedHit);
+            gameGrid.addEventListener('touchstart', (e) => {
+                // Only count as miss if they didn't hit a devil
+                if (e.target.closest('.devil') === null) {
+                    e.preventDefault();
+                    missedHit(e);
+                }
+            }, { passive: false });
+            
+            // Prevent unwanted scrolling or highlighting during gameplay
+            gameGrid.addEventListener('touchmove', (e) => {
+                if (gameActive) e.preventDefault();
+            }, { passive: false });
+        }
+        
+        // Show a devil in a random hole
+        function showDevil() {
+            if (!gameActive) return;
+            
+            const holes = document.querySelectorAll('.hole');
+            let randomHole;
+            
+            // Don't pick the same hole twice in a row
+            do {
+                const randomIndex = Math.floor(Math.random() * holes.length);
+                randomHole = holes[randomIndex];
+            } while (randomHole === lastHole && holes.length > 1);
+            
+            lastHole = randomHole;
+            
+            const devil = randomHole.querySelector('.devil');
+            devil.classList.remove('hidden');
+            devil.classList.add('visible');
+            
+            currentDevil = devil;
+            
+            // Adjust timing based on device
+            const isMobile = window.innerWidth < 768;
+            // Mobile devices get slightly longer devil display times
+            const hideTime = isMobile 
+                ? Math.random() * 900 + 700 // 700-1600ms on mobile
+                : Math.random() * 800 + 600; // 600-1400ms on desktop
+                
+            setTimeout(() => {
+                if (devil.classList.contains('visible')) {
+                    devil.classList.remove('visible');
+                    devil.classList.add('hidden');
+                    currentDevil = null;
+                }
+                
+                // Schedule next devil if game is still active
+                if (gameActive) {
+                    setTimeout(showDevil, gameSpeed);
+                }
+            }, hideTime);
+        }
+        
+        // When player hits a devil
+        function whackDevil(e) {
+            if (!gameActive) return;
+            
+            const devil = e.target.closest('.devil');
+            if (!devil || !devil.classList.contains('visible')) return;
+            
+            score++;
+            scoreDisplay.textContent = score;
+            
+            devil.classList.remove('visible');
+            devil.classList.add('hidden');
+            
+            if (!muted) hitSound.play();
+            
+            // Increase game speed (make it harder)
+            if (gameSpeed > minSpeed) {
+                gameSpeed -= speedDecrement;
+            }
+            
+            // Visual feedback - add a temporary 'hit' effect
+            const hole = devil.parentElement;
+            hole.classList.add('hit');
+            setTimeout(() => hole.classList.remove('hit'), 200);
+        }
+        
+        // When player misses the devil
+        function missedHit(e) {
+            if (!gameActive) return;
+            
+            // Only count as a miss if they clicked/tapped the game area but not on a visible devil
+            if (e.target.closest('.devil.visible') === null && !e.target.closest('.controls')) {
+                if (!muted) missSound.play();
+            }
+        }
+        
+        // Start the game
+        function startGame() {
+            if (gameActive) return;
+            
+            score = 0;
+            scoreDisplay.textContent = score;
+            gameActive = true;
+            gameSpeed = 1000; // Reset speed
+            
+            // Change button text
+            startBtn.textContent = 'Playing...';
+            startBtn.disabled = true;
+            
+            if (!muted) startSound.play();
+            
+            // Start the game loop
+            setTimeout(showDevil, 1000);
+            
+            // End the game after 30 seconds
+            setTimeout(endGame, 30000);
+        }
+        
+        // End the game
+        function endGame() {
+            gameActive = false;
+            
+            // Reset button
+            startBtn.textContent = 'Start Game';
+            startBtn.disabled = false;
+            
+            // Hide any visible devils
+            const devils = document.querySelectorAll('.devil');
+            devils.forEach(devil => {
+                devil.classList.remove('visible');
+                devil.classList.add('hidden');
+            });
+        }
+        
+        // Toggle sound
+        function toggleMute() {
+            muted = !muted;
+            muteBtn.textContent = muted ? '🔇' : '🔊';
+        }
+        
+        // Initialize the game
+        function init() {
+            createGameGrid();
+            
+            startBtn.addEventListener('click', startGame);
+            muteBtn.addEventListener('click', toggleMute);
+            
+            // Check for dark mode
+            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                document.documentElement.classList.add('dark');
+            }
+            
+            // Listen for changes in color scheme
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', event => {
+                if (event.matches) {
+                    document.documentElement.classList.add('dark');
+                } else {
+                    document.documentElement.classList.remove('dark');
+                }
+            });
+        }
+        
+        // Start everything when the page loads
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>
